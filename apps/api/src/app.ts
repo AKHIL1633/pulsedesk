@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { ticketsRouter } from "./routes/tickets";
+import { authRouter } from "./routes/auth";
 import { errorHandler } from "./middleware/errorHandler";
 
 export function createApp() {
@@ -14,6 +15,7 @@ export function createApp() {
     res.json({ status: "ok" });
   });
 
+  app.use("/api/auth", authRouter);
   app.use("/api/tickets", ticketsRouter);
 
   app.use(errorHandler);

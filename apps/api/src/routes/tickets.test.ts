@@ -3,8 +3,29 @@ import { createApp } from "../app";
 import { prisma } from "../db/prisma";
 import { setAIProviderForTesting } from "../ai/providerFactory";
 import type { AIProvider } from "../ai/types";
+import { hashPassword } from "../auth/password";
 
 const app = createApp();
+
+const REVIEWER_EMAIL = "reviewer@test.com";
+const REVIEWER_PASSWORD = "correct-horse";
+
+async function loginAsReviewer(): Promise<string> {
+  await prisma.user.deleteMany();
+  await prisma.user.create({
+    data: {
+      email: REVIEWER_EMAIL,
+      passwordHash: await hashPassword(REVIEWER_PASSWORD),
+      name: "Test Reviewer",
+    },
+  });
+
+  const res = await request(app)
+    .post("/api/auth/login")
+    .send({ email: REVIEWER_EMAIL, password: REVIEWER_PASSWORD });
+
+  return res.body.token as string;
+}
 
 const VALID_BUG_RESPONSE = JSON.stringify({
   category: "BUG",
@@ -137,6 +158,7 @@ describe("GET /api/tickets/:id", () => {
 
 describe("PATCH /api/tickets/:id", () => {
   it("applies a human reviewer's overrides and marks the ticket reviewed", async () => {
+    const token = await loginAsReviewer();
     mockAI(VALID_BUG_RESPONSE);
     const created = await request(app)
       .post("/api/tickets")
@@ -144,6 +166,7 @@ describe("PATCH /api/tickets/:id", () => {
 
     const res = await request(app)
       .patch(`/api/tickets/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
       .send({ category: "SUPPORT", priority: "LOW", status: "REVIEWED" });
 
     expect(res.status).toBe(200);
@@ -153,14 +176,17 @@ describe("PATCH /api/tickets/:id", () => {
   });
 
   it("returns 404 when updating an unknown id", async () => {
+    const token = await loginAsReviewer();
     const res = await request(app)
       .patch("/api/tickets/00000000-0000-0000-0000-000000000000")
+      .set("Authorization", `Bearer ${token}`)
       .send({ status: "REVIEWED" });
 
     expect(res.status).toBe(404);
   });
 
   it("returns 400 when status is not REVIEWED or RESOLVED", async () => {
+    const token = await loginAsReviewer();
     mockAI(VALID_BUG_RESPONSE);
     const created = await request(app)
       .post("/api/tickets")
@@ -168,8 +194,22 @@ describe("PATCH /api/tickets/:id", () => {
 
     const res = await request(app)
       .patch(`/api/tickets/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
       .send({ status: "NEW" });
 
     expect(res.status).toBe(400);
+  });
+
+  it("returns 401 when no auth token is provided", async () => {
+    mockAI(VALID_BUG_RESPONSE);
+    const created = await request(app)
+      .post("/api/tickets")
+      .send({ title: "T", description: "D", submittedBy: "x@example.com" });
+
+    const res = await request(app)
+      .patch(`/api/tickets/${created.body.id}`)
+      .send({ status: "REVIEWED" });
+
+    expect(res.status).toBe(401);
   });
 });

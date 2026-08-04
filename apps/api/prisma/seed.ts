@@ -1,9 +1,22 @@
 import { PrismaClient } from "@prisma/client";
+import { hashPassword } from "../src/auth/password";
 
 const prisma = new PrismaClient();
 
+const DEMO_REVIEWER_EMAIL = "reviewer@pulsedesk.dev";
+const DEMO_REVIEWER_PASSWORD = "pulsedesk-demo";
+
 async function main() {
   await prisma.ticket.deleteMany();
+  await prisma.user.deleteMany();
+
+  await prisma.user.create({
+    data: {
+      email: DEMO_REVIEWER_EMAIL,
+      passwordHash: await hashPassword(DEMO_REVIEWER_PASSWORD),
+      name: "Demo Reviewer",
+    },
+  });
 
   await prisma.ticket.createMany({
     data: [
@@ -81,6 +94,7 @@ async function main() {
   });
 
   console.log("Seeded 6 sample tickets.");
+  console.log(`Seeded reviewer login: ${DEMO_REVIEWER_EMAIL} / ${DEMO_REVIEWER_PASSWORD}`);
 }
 
 main()

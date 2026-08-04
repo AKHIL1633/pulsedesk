@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { CreateTicketSchema, TicketListQuerySchema, UpdateTicketSchema } from "@pulsedesk/shared";
 import { asyncHandler } from "../utils/asyncHandler";
+import { requireAuth } from "../auth/middleware";
 import { createTicket, getTicketById, listTickets, updateTicket } from "../services/ticketService";
 
 export const ticketsRouter = Router();
@@ -37,6 +38,7 @@ ticketsRouter.get(
 
 ticketsRouter.patch(
   "/:id",
+  requireAuth,
   asyncHandler(async (req, res) => {
     const input = UpdateTicketSchema.parse(req.body);
     const ticket = await updateTicket(req.params.id, input);

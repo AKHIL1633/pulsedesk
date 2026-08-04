@@ -64,6 +64,31 @@ export const TicketListQuerySchema = z.object({
 
 export type TicketListQuery = z.infer<typeof TicketListQuerySchema>;
 
+/** Body for POST /api/auth/login — reviewer sign-in only, no self-registration. */
+export const LoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1, "Password is required"),
+});
+
+export type LoginInput = z.infer<typeof LoginSchema>;
+
+/** Reviewer identity as returned by the auth endpoints (never includes the password hash). */
+export const AuthUserSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  name: z.string(),
+});
+
+export type AuthUser = z.infer<typeof AuthUserSchema>;
+
+/** Response shape for POST /api/auth/login. */
+export const LoginResponseSchema = z.object({
+  token: z.string(),
+  user: AuthUserSchema,
+});
+
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
 /**
  * Shape the AI agent must return for a classification call.
  * Validated independently of prompt instructions (defense-in-depth) —

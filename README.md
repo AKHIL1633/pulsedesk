@@ -76,6 +76,7 @@ warning banner, and can override any field before marking it reviewed:
 | Web        | Next.js 15, React 19, Tailwind CSS |
 | Mobile     | Expo (React Native), TypeScript, React Navigation |
 | AI         | Google Gemini API, behind a swappable provider interface |
+| Auth       | JWT (reviewer login on web only), bcrypt password hashing |
 | Validation | zod, shared across all three apps |
 | Testing    | Jest, supertest |
 
@@ -116,15 +117,20 @@ This installs and links all four workspace packages (`api`, `web`, `mobile`,
 ```bash
 docker compose up -d          # starts Postgres on localhost:5433
 cd apps/api
-cp .env.example .env          # then fill in GEMINI_API_KEY
+cp .env.example .env          # then fill in GEMINI_API_KEY and JWT_SECRET
 pnpm prisma:migrate           # creates the schema
-pnpm db:seed                  # optional: loads 6 sample tickets
+pnpm db:seed                  # loads 6 sample tickets + a demo reviewer login
 pnpm dev                      # http://localhost:4000
 ```
 
 > The default `docker-compose.yml` maps Postgres to host port **5433**, not
 > 5432 — this avoids clashing with a Postgres instance you may already have
 > running locally. Adjust `DATABASE_URL` if you change the mapping.
+
+> `pnpm db:seed` also creates the only reviewer account the web dashboard
+> will accept: **`reviewer@pulsedesk.dev` / `pulsedesk-demo`**. There's no
+> self-registration route — reviewer accounts are seeded/created directly in
+> the database, matching an internal admin-panel access model.
 
 ### 3. Start the web dashboard
 
@@ -261,9 +267,13 @@ the routes, or the retry/validation logic.
 
 ## Known limitations
 
-- **No auth.** `submittedBy` is a self-reported name/email with no
+- **The web dashboard requires reviewer login**; the mobile submission flow
+  does not. `submittedBy` is still a self-reported name/email with no
   verification — intentional for a demo, not something to carry into a real
-  deployment as-is.
+  deployment as-is. Reviewer auth is JWT-based
+  (`apps/api/src/auth/`), gates `PATCH /api/tickets/:id` on the API and the
+  entire dashboard behind `apps/web/src/middleware.ts`; there's no
+  self-registration route, only seeded accounts (see Setup above).
 - **Photo attachments aren't uploaded anywhere.** The mobile app captures a
   local device URI via `expo-image-picker` and sends it as `imageUrl`; there's
   no cloud storage step, so a photo taken on one device won't render for
@@ -287,6 +297,10 @@ the routes, or the retry/validation logic.
 - API integration tests for the full ticket CRUD flow, including AI success
   and AI-failure paths, filtering, 404s, and validation errors
   (`apps/api/src/routes/tickets.test.ts`).
+- Reviewer login: correct/incorrect credentials, malformed requests, and
+  token validation on `/api/auth/me`; `PATCH /api/tickets/:id` rejecting
+  requests with no bearer token (`apps/api/src/routes/auth.test.ts`,
+  `tickets.test.ts`).
 
 ```bash
 cd apps/api && pnpm test
