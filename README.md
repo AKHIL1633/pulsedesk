@@ -57,6 +57,11 @@ like.
 
 ## Screenshots
 
+**Reviewer sign-in** — the dashboard is gated behind login; see the seeded
+demo credentials under Setup:
+
+![Reviewer login screen](docs/screenshots/login.png)
+
 **Ticket list** — color-coded category/priority/status badges, filters, sort,
 and a visible confidence flag on anything the AI was unsure about:
 
