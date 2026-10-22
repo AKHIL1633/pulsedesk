@@ -16,12 +16,7 @@ out/
 !.env.example
 
 # Prisma
-apps/api/prisma/migrations/dev/
-
-# Expo / React Native
-apps/mobile/.expo/
-apps/mobile/.expo-shared/
-*.orig.*
+backend/prisma/migrations/dev/
 
 # Logs
 *.log

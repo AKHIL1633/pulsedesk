@@ -10,7 +10,7 @@ AI-native teams actually use in production: let the model do the repetitive
 triage work, keep a person in the loop for judgment calls, and make it obvious
 when the model isn't confident enough to trust unsupervised.
 
-Submitters use a mobile app (or the API directly) to file a ticket. The
+Submitters file a ticket through the REST API (`POST /api/tickets`). The
 backend calls Gemini to classify it in real time. A reviewer works out of the
 web dashboard, where anything the AI was unsure about is visibly flagged.
 
@@ -28,14 +28,13 @@ customer from filing a ticket.
 ## Architecture
 
 ```
-┌───────────────┐          ┌────────────────────┐          ┌───────────────────┐
-│  Mobile App   │          │                    │          │   Web Dashboard   │
-│  (Expo / RN)  │──POST───▶│                    │◀───GET───│    (Next.js)      │
-│               │          │      REST API      │          │                   │
-│ Submit Ticket │──GET────▶│      (Express)     │──PATCH──▶│  Ticket List /    │
-│ My Tickets    │          │                    │          │  Review UI        │
-│ Ticket Detail │          │                    │          │                   │
-└───────────────┘          └─────────┬──────────┘          └───────────────────┘
+   Submitter                 ┌────────────────────┐          ┌───────────────────┐
+  (API client) ──POST──────▶│                    │◀───GET───│   frontend/       │
+                            │   backend/         │          │   (Next.js)       │
+                            │   REST API         │◀──PATCH──│                   │
+                            │   (Express, MVC)   │          │  Ticket List /    │
+                            │                    │          │  Review UI        │
+                            └─────────┬──────────┘          └───────────────────┘
                                       │
                                       ▼
                             ┌────────────────────┐
@@ -50,9 +49,9 @@ customer from filing a ticket.
                             └────────────────────┘
 ```
 
-Every app talks to the same REST API and shares one set of zod schemas
-(`@pulsedesk/shared`) for the `Ticket` shape, so the mobile app, the web
-dashboard, and the backend can never drift out of sync on what a ticket looks
+The frontend and backend share one set of zod schemas (`shared/`,
+published in the workspace as `@pulsedesk/shared`) for the `Ticket` shape, so
+the dashboard and the API can never drift out of sync on what a ticket looks
 like.
 
 ## Screenshots
@@ -79,24 +78,43 @@ warning banner, and can override any field before marking it reviewed:
 | Monorepo   | pnpm workspaces |
 | Backend    | Node.js, Express, TypeScript, Prisma, PostgreSQL |
 | Web        | Next.js 15, React 19, Tailwind CSS |
-| Mobile     | Expo (React Native), TypeScript, React Navigation |
 | AI         | Google Gemini API, behind a swappable provider interface |
 | Auth       | JWT (reviewer login on web only), bcrypt password hashing |
-| Validation | zod, shared across all three apps |
+| Validation | zod, shared between frontend and backend |
 | Testing    | Jest, supertest |
 
-## Monorepo structure
+## Project structure
+
+Both apps follow an MVC layout and live side by side in one folder:
 
 ```
 pulsedesk/
-├── apps/
-│   ├── api/        Express backend — ticket CRUD, AI triage agent
-│   ├── web/        Next.js dashboard for human review
-│   └── mobile/     Expo app for submitting and tracking tickets
-├── packages/
-│   └── shared/     zod schemas, types, and constants used by all three apps
-└── docker-compose.yml   local PostgreSQL for dev
+├── backend/                 Express API — ticket CRUD, AI triage agent
+│   ├── prisma/              schema, migrations, seed
+│   └── src/
+│       ├── app.ts           Express app wiring
+│       ├── server.ts        entry point
+│       ├── config/          Prisma client
+│       ├── models/          Model — data access (TicketModel, UserModel)
+│       ├── views/           View — JSON response serializers
+│       ├── controllers/     Controller — parse request, call service, render view
+│       ├── routes/          URL → controller mapping
+│       ├── services/        business logic (tickets, auth, notifications, ai/)
+│       ├── middleware/      requireAuth, errorHandler
+│       ├── utils/           jwt, password hashing, asyncHandler
+│       └── tests/           API integration tests
+├── frontend/                Next.js dashboard for human review
+│   └── src/
+│       ├── app/             Next.js routes (pages compose views)
+│       ├── models/          Model — API client, auth cookie names
+│       ├── views/           View — React components, badge styles
+│       └── controllers/     Controller — hooks, login/logout, URL filter parsing
+├── shared/                  zod schemas, types and constants used by both
+└── docker-compose.yml       local PostgreSQL for dev
 ```
+
+Request flow on the backend: `routes → controllers → services → models`, with
+controllers returning output through `views`.
 
 ## Setup
 
@@ -106,7 +124,6 @@ pulsedesk/
 - pnpm (`npm install -g pnpm`)
 - Docker (for local Postgres) — or a hosted Postgres URL (Railway/Supabase)
 - A [Gemini API key](https://aistudio.google.com/apikey) (free tier works)
-- Expo Go app on your phone, if you want to run the mobile app on-device
 
 ### 1. Install dependencies
 
@@ -114,14 +131,14 @@ pulsedesk/
 pnpm install
 ```
 
-This installs and links all four workspace packages (`api`, `web`, `mobile`,
+This installs and links the three workspace packages (`backend`, `frontend`,
 `shared`) in one pass.
 
 ### 2. Start Postgres and the API
 
 ```bash
 docker compose up -d          # starts Postgres on localhost:5433
-cd apps/api
+cd backend
 cp .env.example .env          # then fill in GEMINI_API_KEY and JWT_SECRET
 pnpm prisma:migrate           # creates the schema
 pnpm db:seed                  # loads 6 sample tickets + a demo reviewer login
@@ -140,28 +157,15 @@ pnpm dev                      # http://localhost:4000
 ### 3. Start the web dashboard
 
 ```bash
-cd apps/web
+cd frontend
 cp .env.local.example .env.local
 pnpm dev                      # http://localhost:3000
 ```
 
-### 4. Start the mobile app
-
-```bash
-cd apps/mobile
-pnpm start
-```
-
-Scan the QR code with Expo Go. **On a physical device**, `localhost` in
-`app.json`'s `extra.apiUrl` refers to the phone itself, not your dev machine —
-change it to your machine's LAN IP (e.g. `http://192.168.1.23:4000`) so the
-app can reach the API over Wi-Fi. The iOS Simulator and Android Emulator can
-usually reach `localhost`/`10.0.2.2` directly.
-
 ### Running tests
 
 ```bash
-cd apps/api
+cd backend
 pnpm test
 ```
 
@@ -171,13 +175,13 @@ Integration tests run against a dedicated `pulsedesk_test` database (see
 ```bash
 docker exec pulsedesk-postgres psql -U pulsedesk -d pulsedesk -c "CREATE DATABASE pulsedesk_test;"
 DATABASE_URL="postgresql://pulsedesk:pulsedesk@localhost:5433/pulsedesk_test?schema=public" \
-  pnpm --filter @pulsedesk/api exec prisma migrate deploy
+  pnpm --filter @pulsedesk/backend exec prisma migrate deploy
 ```
 
 ## Prompt design
 
 The classification prompt lives in
-[`apps/api/src/ai/prompt.ts`](apps/api/src/ai/prompt.ts). The actual prompt
+[`backend/src/services/ai/prompt.ts`](backend/src/services/ai/prompt.ts). The actual prompt
 sent to Gemini:
 
 ```
@@ -236,21 +240,21 @@ Design choices worth calling out:
   pass reliably fixes markdown-fenced or prose-wrapped responses.
 
 Error handling for the AI call itself is layered separately from schema
-validation: `apps/api/src/ai/errors.ts` classifies every failure into
+validation: `backend/src/services/ai/errors.ts` classifies every failure into
 `RATE_LIMITED`, `TIMEOUT`, `SERVER_ERROR`, or `INVALID_REQUEST`, and only the
 first three are retried, with full-jitter exponential backoff
-(`apps/api/src/ai/backoff.ts`). If the AI is unavailable even after retries,
+(`backend/src/services/ai/backoff.ts`). If the AI is unavailable even after retries,
 the ticket is still saved — as `NEW` with a null category/priority — instead
 of failing the submission. Every attempt (prompt used, raw response,
 validation result, latency) is logged as structured JSON via
-`apps/api/src/ai/logger.ts`.
+`backend/src/services/ai/logger.ts`.
 
 ## Swapping the AI provider
 
 Gemini is the only implementation today, but `classifyTicket` never talks to
 Gemini directly — it goes through `AIProvider`
-(`apps/api/src/ai/types.ts`), and `getAIProvider()`
-(`apps/api/src/ai/providerFactory.ts`) is the only place that knows which
+(`backend/src/services/ai/types.ts`), and `getAIProvider()`
+(`backend/src/services/ai/providerFactory.ts`) is the only place that knows which
 concrete provider is active, selected via the `AI_PROVIDER` env var. Adding
 OpenAI or Claude means writing one new class implementing `generate(prompt)`
 and adding a case to the factory's switch — no changes to `classifyTicket`,
@@ -262,33 +266,29 @@ the routes, or the retry/validation logic.
   deployed API's URL)
 - **API** → [Railway](https://railway.app) (set `DATABASE_URL`,
   `GEMINI_API_KEY`, `CORS_ORIGIN`)
-- **Mobile** → Expo Go for development; `eas build` for an installable APK
 
 *Live links go here once deployed:*
 
 - Web dashboard: _not yet deployed_
 - API: _not yet deployed_
-- Mobile (Expo Go / APK): _not yet deployed_
 
 ## Known limitations
 
-- **The web dashboard requires reviewer login**; the mobile submission flow
-  does not. `submittedBy` is still a self-reported name/email with no
+- **The web dashboard requires reviewer login**; ticket submission
+  (`POST /api/tickets`) does not. `submittedBy` is still a self-reported name/email with no
   verification — intentional for a demo, not something to carry into a real
   deployment as-is. Reviewer auth is JWT-based
-  (`apps/api/src/auth/`), gates `PATCH /api/tickets/:id` on the API and the
-  entire dashboard behind `apps/web/src/middleware.ts`; there's no
+  (`backend/src/middleware/requireAuth.ts`), gates `PATCH /api/tickets/:id` on the API and the
+  entire dashboard behind `frontend/src/middleware.ts`; there's no
   self-registration route, only seeded accounts (see Setup above).
-- **Photo attachments aren't uploaded anywhere.** The mobile app captures a
-  local device URI via `expo-image-picker` and sends it as `imageUrl`; there's
-  no cloud storage step, so a photo taken on one device won't render for
-  anyone viewing the ticket elsewhere (e.g. the web dashboard). A real
+- **Photo attachments aren't uploaded anywhere.** `imageUrl` is stored as
+  whatever URL the client sends; there's no upload/storage step. A real
   deployment would upload to S3/Cloudinary/etc. first and store the resulting
   public URL.
-- **Expo push notifications on status change are not implemented** (listed
-  as a bonus in the original spec). `apps/api/src/services/notificationService.ts`
+- **Push notifications on status change are not implemented** (listed
+  as a bonus in the original spec). `backend/src/services/notificationService.ts`
   has the hook point (`notifyStatusChange`, called on every status
-  transition) — wiring it to Expo push just needs a device push-token store
+  transition) — wiring it to a push provider just needs a device push-token store
   keyed by `submittedBy`, which isn't part of the current data model.
 
 ## Testing
@@ -298,15 +298,15 @@ the routes, or the retry/validation logic.
 - AI classification: valid-response parsing, code-fence stripping, schema
   rejection of malformed/out-of-range responses, the strict-prompt retry on
   validation failure, retry-with-backoff on `RATE_LIMITED`/`SERVER_ERROR`,
-  and no-retry on `INVALID_REQUEST` (`apps/api/src/ai/*.test.ts`).
+  and no-retry on `INVALID_REQUEST` (`backend/src/services/ai/*.test.ts`).
 - API integration tests for the full ticket CRUD flow, including AI success
   and AI-failure paths, filtering, 404s, and validation errors
-  (`apps/api/src/routes/tickets.test.ts`).
+  (`backend/src/tests/tickets.test.ts`).
 - Reviewer login: correct/incorrect credentials, malformed requests, and
   token validation on `/api/auth/me`; `PATCH /api/tickets/:id` rejecting
-  requests with no bearer token (`apps/api/src/routes/auth.test.ts`,
+  requests with no bearer token (`backend/src/tests/auth.test.ts`,
   `tickets.test.ts`).
 
 ```bash
-cd apps/api && pnpm test
+cd backend && pnpm test
 ```
