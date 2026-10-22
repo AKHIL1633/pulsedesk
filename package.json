@@ -4,9 +4,8 @@
   "private": true,
   "description": "AI-triaged support, human-reviewed.",
   "scripts": {
-    "dev:api": "pnpm --filter @pulsedesk/api dev",
-    "dev:web": "pnpm --filter @pulsedesk/web dev",
-    "dev:mobile": "pnpm --filter @pulsedesk/mobile start",
+    "dev:backend": "pnpm --filter @pulsedesk/backend dev",
+    "dev:frontend": "pnpm --filter @pulsedesk/frontend dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
